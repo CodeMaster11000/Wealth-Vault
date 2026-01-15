@@ -1,15 +1,12 @@
 import { useState } from 'react';
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
-import { useTheme } from './hooks/useTheme';
 import { Header } from './components/Layout/Header';
 import { Sidebar } from './components/Layout/Sidebar';
 import { ErrorBoundary } from './components/Layout/ErrorBoundary';
 import { routes } from './routes';
-import CurrencyConverter from './components/CurrencyConverter.jsx';
 import { DevAuthBypass } from './components/DevAuthBypass';
 
 function AppLayout() {
-  const { isDark } = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
   const isAuthPage = location.pathname === '/auth';
@@ -72,14 +69,7 @@ function AppLayout() {
                       <Route
                         key={route.path}
                         path={route.path}
-                        element={
-                          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                            <div className="lg:col-span-2">
-                              {route.element}
-                            </div>
-                            <CurrencyConverter />
-                          </div>
-                        }
+                        element={route.element}
                       />
                     );
                   }
