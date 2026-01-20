@@ -21,8 +21,8 @@ import { DashboardSkeleton } from './DashboardSkeleton';
 import SpendingAnalytics from './SpendingAnalytics';
 import type { SpendingData, Expense, CategoryDetails as CategoryDetailsType } from '../../types';
 import { expensesAPI } from '../../services/api';
-// @ts-ignore - CurrencyConverter is a .jsx file without type declarations
-import CurrencyConverter from '../CurrencyConverter';
+import { useToast } from '../../context/ToastContext';
+import CurrencyConverter from '../CurrencyConverter.jsx';
 
 interface DashboardProps {
   paymentMade?: boolean;
@@ -35,6 +35,8 @@ export interface SpendingChartProps {
 type TabType = 'overview' | 'transactions' | 'analytics' | 'categories';
 
 const Dashboard: React.FC<DashboardProps> = ({ paymentMade }) => {
+  const { showToast } = useToast();
+  
   // Theme state for dark/light
   const [theme] = useState<'light' | 'dark'>(
     localStorage.getItem('theme') === 'dark' ? 'dark' : 'light'
@@ -47,6 +49,8 @@ const Dashboard: React.FC<DashboardProps> = ({ paymentMade }) => {
   // State hooks
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [timeRange, setTimeRange] = useState('month');
+  const [convertedCurrency, setConvertedCurrency] = useState<string | null>(null);
+  const [conversionRate, setConversionRate] = useState<number>(1);
   const [spendingData, setSpendingData] = useState<SpendingData>({
     safe: 24500,
     impulsive: 6800,
@@ -57,14 +61,45 @@ const Dashboard: React.FC<DashboardProps> = ({ paymentMade }) => {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [filteredExpenses, setFilteredExpenses] = useState<Expense[]>([]);
 
-  // Format amount to Indian Rupee
+  // Format amount to Indian Rupee or converted currency
   const formatAmount = (amount: number): string => {
-    return new Intl.NumberFormat('en-IN', {
+    const convertedAmount = convertedCurrency ? amount * conversionRate : amount;
+    const currency = convertedCurrency || 'INR';
+    const formatted = new Intl.NumberFormat('en-IN', {
       style: 'currency',
-      currency: 'INR',
+      currency: currency,
       minimumFractionDigits: 0,
-      maximumFractionDigits: 0
-    }).format(amount);
+      maximumFractionDigits: 2
+    }).format(convertedAmount);
+    // Add extra space between currency symbol and amount for better readability
+    return formatted.replace(/^([^\d]+)/, '$1\u00A0');
+  };
+
+  // Function to filter expenses by time range
+  const getFilteredExpensesByTimeRange = (allExpenses: Expense[]) => {
+    const now = new Date();
+    let startDate: Date;
+
+    switch (timeRange) {
+      case 'week':
+        startDate = new Date(now);
+        startDate.setDate(now.getDate() - 7);
+        break;
+      case 'month':
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        break;
+      case 'quarter':
+        const currentQuarter = Math.floor(now.getMonth() / 3);
+        startDate = new Date(now.getFullYear(), currentQuarter * 3, 1);
+        break;
+      case 'year':
+        startDate = new Date(now.getFullYear(), 0, 1);
+        break;
+      default:
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    }
+
+    return allExpenses.filter(t => new Date(t.date) >= startDate);
   };
 
   // Loading and error states
@@ -81,11 +116,9 @@ const Dashboard: React.FC<DashboardProps> = ({ paymentMade }) => {
         const res = await expensesAPI.getAll();
         const allExpenses: Expense[] = res.data.expenses || [];
         setExpenses(allExpenses);
-        const now = new Date();
-        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-        const monthlyTransactions = allExpenses.filter(t => new Date(t.date) >= monthStart);
+        const filteredTransactions = getFilteredExpensesByTimeRange(allExpenses);
         const newSpendingData: SpendingData = { safe: 0, impulsive: 0, anxious: 0 };
-        monthlyTransactions.forEach(transaction => {
+        filteredTransactions.forEach(transaction => {
           const cat = transaction.category.toLowerCase();
           if (["safe", "impulsive", "anxious"].includes(cat)) {
             newSpendingData[cat] += Math.abs(transaction.amount);
@@ -93,7 +126,7 @@ const Dashboard: React.FC<DashboardProps> = ({ paymentMade }) => {
         });
         setSpendingData(newSpendingData);
         const details: CategoryDetailsType[] = ["safe", "impulsive", "anxious"].map(category => {
-          const categoryTransactions = monthlyTransactions.filter(t => t.category.toLowerCase() === category);
+          const categoryTransactions = filteredTransactions.filter(t => t.category.toLowerCase() === category);
           const totalAmount = categoryTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
           const totalSpent = newSpendingData.safe + newSpendingData.impulsive + newSpendingData.anxious;
           return {
@@ -108,20 +141,52 @@ const Dashboard: React.FC<DashboardProps> = ({ paymentMade }) => {
           };
         });
         setCategoryDetails(details);
+        showToast(`Loaded ${allExpenses.length} expenses successfully`, 'success', 2000);
       } catch (err) {
         console.error('Failed to fetch expenses:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load expenses. Please try again.');
+        const errorMessage = err instanceof Error ? err.message : 'Failed to load expenses. Please try again.';
+        setError(errorMessage);
+        showToast(errorMessage, 'error');
       } finally {
         setIsLoading(false);
       }
     };
     fetchExpenses();
-  }, [paymentMade]);
+  }, [paymentMade, showToast]);
 
   // Initialize filtered expenses when expenses change
   useEffect(() => {
-    setFilteredExpenses(expenses);
-  }, [expenses]);
+    const searchExpenses = async () => {
+      if (searchTerm.trim() === '') {
+        setSearchResults([]);
+        setSearchError(null);
+        return;
+      }
+      
+      setIsSearching(true);
+      setSearchError(null);
+      
+      try {
+        const res = await expensesAPI.getAll({ search: searchTerm, limit: 50 });
+        setSearchResults(res.data.expenses || []);
+        const count = res.data.expenses?.length || 0;
+        if (count > 0) {
+          showToast(`Found ${count} matching transaction${count !== 1 ? 's' : ''}`, 'info', 2000);
+        }
+      } catch (err) {
+        console.error('Search failed:', err);
+        setSearchError('Search failed. Please try again.');
+        showToast('Search failed. Please try again.', 'error');
+        setSearchResults([]);
+      } finally {
+        setIsSearching(false);
+      }
+    };
+
+    // Debounce search to avoid too many API calls
+    const timeoutId = setTimeout(searchExpenses, 300);
+    return () => clearTimeout(timeoutId);
+  }, [searchTerm, showToast]);
 
   // --- Analytics ---
   // 1. Spending trend (by day for current month)
@@ -270,6 +335,23 @@ const Dashboard: React.FC<DashboardProps> = ({ paymentMade }) => {
         return cat;
       })
     );
+    showToast(`Expense of ₹${expense.amount} added successfully!`, 'success');
+  };
+
+  // Handle currency conversion
+  const handleCurrencyConversion = (data: { from: string; to: string; rate: number }) => {
+    if (data.from === 'INR' && data.to !== 'INR') {
+      setConvertedCurrency(data.to);
+      setConversionRate(data.rate);
+    } else if (data.from !== 'INR') {
+      // If converting from non-INR, first convert to INR rate, then apply
+      setConvertedCurrency(data.to);
+      setConversionRate(data.rate);
+    } else {
+      // Reset to INR
+      setConvertedCurrency(null);
+      setConversionRate(1);
+    }
   };
 
   // Retry handler for failed data fetch
@@ -336,7 +418,7 @@ const Dashboard: React.FC<DashboardProps> = ({ paymentMade }) => {
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
-              <CurrencyConverter onRateChange={() => { }} />
+              <CurrencyConverter onRateChange={handleCurrencyConversion} />
 
               <select
                 value={timeRange}
@@ -346,6 +428,7 @@ const Dashboard: React.FC<DashboardProps> = ({ paymentMade }) => {
                 <option value="week">This Week</option>
                 <option value="month">This Month</option>
                 <option value="quarter">This Quarter</option>
+                <option value="year">This Year</option>
               </select>
 
               <AddExpenseButton
