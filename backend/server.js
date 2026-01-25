@@ -9,6 +9,8 @@ import path from "path";
 import { fileURLToPath } from "url";
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./config/swagger.js";
+import { connectRedis } from "./config/redis.js";
+import { scheduleCleanup } from "./jobs/tokenCleanup.js";
 import { generalLimiter, aiLimiter, userLimiter } from "./middleware/rateLimiter.js";
 import { sanitizeInput, sanitizeMongo } from "./middleware/sanitizer.js";
 import { errorHandler, notFound } from "./middleware/errorHandler.js";
@@ -24,6 +26,14 @@ import analyticsRoutes from "./routes/analytics.js";
 
 // Load environment variables
 dotenv.config();
+
+// Initialize Redis connection
+connectRedis().catch(err => {
+  console.warn('⚠️ Redis connection failed, using memory-based rate limiting');
+});
+
+// Schedule token cleanup job
+scheduleCleanup();
 
 const app = express();
 const __filename = fileURLToPath(import.meta.url);

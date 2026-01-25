@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   User as UserIcon, 
   Phone, 
@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { authAPI } from '../../services/api';
+import { useLoading } from '../../context/LoadingContext';
 import type { User } from '../../types';
 
 // Mock dev profile with complete data
@@ -57,6 +58,7 @@ export const Profile: React.FC = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [editedProfile, setEditedProfile] = useState<Partial<User>>({});
   const [loading, setLoading] = useState(true);
+  const { withLoading } = useLoading();
   const [saving, setSaving] = useState(false);
   const [isDevMode, setIsDevMode] = useState(false);
 
@@ -64,9 +66,9 @@ export const Profile: React.FC = () => {
     if (user) {
       loadProfile();
     }
-  }, [user]);
+  }, [user, loadProfile]);
 
-  const loadProfile = async () => {
+  const loadProfile = useCallback(async () => {
     if (!user) return;
 
     setLoading(true);
@@ -85,7 +87,7 @@ export const Profile: React.FC = () => {
       }
 
       // Load real profile from backend
-      const response = await authAPI.getProfile();
+      const response = await withLoading(authAPI.getProfile(), 'Loading profile...');
       if (response.success) {
         setProfile(response.data.user);
         setEditedProfile(response.data.user);
@@ -97,7 +99,7 @@ export const Profile: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
 
   const handleSave = async () => {
     if (!user) return;
@@ -111,7 +113,7 @@ export const Profile: React.FC = () => {
 
     setSaving(true);
     try {
-      const response = await authAPI.updateProfile(editedProfile);
+      const response = await withLoading(authAPI.updateProfile(editedProfile), 'Saving profile...');
 
       if (response.success) {
         setProfile(response.data.user);
@@ -241,8 +243,6 @@ export const Profile: React.FC = () => {
     );
   }
 
-  const totalSpent = profile.monthlyBudget - (profile.emergencyFund || 0);
-  const budgetUsagePercent = profile.monthlyBudget > 0 ? (totalSpent / profile.monthlyBudget) * 100 : 0;
   const savingsRate = profile.monthlyIncome > 0 ? ((profile.monthlyIncome - profile.monthlyBudget) / profile.monthlyIncome) * 100 : 0;
 
   return (
