@@ -5,6 +5,7 @@ import { GoalForm } from './GoalForm';
 import { useAuth } from '../../hooks/useAuth';
 import { goalsAPI } from '../../services/api';
 import { useLoading } from '../../context/LoadingContext';
+import { useToast } from '../../context/ToastContext';
 import type { Goal } from '../../types';
 
 export const Goals: React.FC = () => {
@@ -14,12 +15,20 @@ export const Goals: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
   const { withLoading } = useLoading();
-
-  useEffect(() => {
-    if (user) {
-      loadGoals();
-    }
-  }, [user, loadGoals]);
+export const Goals: React.FC = () => {
+  const [goals, setGoals] = useState<Goal[]>([]);
+  const [showForm, setShowForm] = useState(false);
+  const [editingGoal, setEditingGoal] = useState<Goal | undefined>();
+  const [loading, setLoading] = useState(true);
+  const [expandedGoals, setExpandedGoals] = useState<Set<string>>(new Set());
+  const [milestones, setMilestones] = useState<Record<string, Milestone[]>>({});
+  const [showMilestoneForm, setShowMilestoneForm] = useState(false);
+  const [editingMilestone, setEditingMilestone] = useState<Milestone | undefined>();
+  const [selectedGoalId, setSelectedGoalId] = useState<string | undefined>();
+  const { user } = useAuth();
+  const { withLoading } = useLoading();
+=======
+  const { showToast } = useToast();
 
   const loadGoals = useCallback(async () => {
     if (!user) return;
@@ -35,7 +44,13 @@ export const Goals: React.FC = () => {
       setGoals([]); // Ensure goals is always an array
     }
     finally { setLoading(false); }
-  }, [user]);
+  }, [user, withLoading]);
+
+  useEffect(() => {
+    if (user) {
+      loadGoals();
+    }
+  }, [user, loadGoals]);
 
   const handleSaveGoal = async (goalData: Partial<Goal>) => {
     if (!user) return;
@@ -45,8 +60,10 @@ export const Goals: React.FC = () => {
         console.log('Update response:', response);
         if (!response.success) {
           console.error('Failed to update goal:', response);
+          showToast('Failed to update goal. Please try again.', 'error');
           return;
         }
+        showToast('Goal updated successfully!', 'success');
       } else {
         const deadline = goalData.deadline || goalData.targetDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
         console.log('Creating goal with data:', {
@@ -76,14 +93,17 @@ export const Goals: React.FC = () => {
         console.log('Create response:', response);
         if (!response.success) {
           console.error('Failed to create goal:', response);
+          showToast('Failed to create goal. Please try again.', 'error');
           return;
         }
+        showToast('Goal created successfully!', 'success');
       }
       await loadGoals();
       setShowForm(false);
       setEditingGoal(undefined);
     } catch (error) { 
       console.error('Error saving goal:', error);
+      showToast('An error occurred while saving the goal.', 'error');
     }
   };
 
@@ -93,10 +113,21 @@ export const Goals: React.FC = () => {
   };
 
   const handleDeleteGoal = async (goalId: string) => {
+    if (!user) return;
     try {
       const response = await withLoading(goalsAPI.delete(goalId), 'Deleting goal...');
-      if (response.success) await loadGoals();
-    } catch { /* Silent */ }
+      console.log('Delete response:', response);
+      if (!response.success) {
+        console.error('Failed to delete goal:', response);
+        showToast('Failed to delete goal. Please try again.', 'error');
+        return;
+      }
+      showToast('Goal deleted successfully!', 'success');
+      await loadGoals();
+    } catch (error) {
+      console.error('Error deleting goal:', error);
+      showToast('An error occurred while deleting the goal.', 'error');
+    }
   };
 
   const totalGoalsValue = (goals || []).reduce((sum, goal) => sum + goal.targetAmount, 0);
